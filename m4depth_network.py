@@ -33,7 +33,7 @@ class DomainNormalization(ks.layers.Layer):
         channels = input_shape[-1]
 
         self.scale = self.add_weight(name="scale", shape=[1, 1, 1, channels], dtype='float32',
-                                    initializer=tf.ones_initializer(), trainable=True)
+                                     initializer=tf.ones_initializer(), trainable=True)
         self.bias = self.add_weight(name="bias", shape=[1, 1, 1, channels], dtype='float32',
                                     initializer=tf.zeros_initializer(), trainable=True)
 
@@ -72,23 +72,6 @@ class FeaturePyramid(ks.layers.Layer):
         ]
 
         self.dn_layers = [DomainNormalization(regularizer_weight=regularizer_weight) for nbre_filters in self.out_sizes]
-
-    def build(self, input_shape):
-    # Build all convolutional layers
-        current_shape = input_shape
-        for i, (conv_s1, conv_s2) in enumerate(zip(self.conv_layers_s1, self.conv_layers_s2)):
-            conv_s1.build(current_shape)
-            current_shape = conv_s1.compute_output_shape(current_shape)
-            conv_s2.build(current_shape)
-            current_shape = conv_s2.compute_output_shape(current_shape)
-            
-            # Build domain normalization layer with the correct output shape
-            # Each dn_layer should match the output channels of its corresponding conv layer
-            if i < len(self.dn_layers):
-                # Use the output shape of the conv_s2 layer (which is the input to the next level)
-                self.dn_layers[i].build(current_shape)
-        
-        self.built = True
 
     @tf.function  # (jit_compile=True)
     def call(self, images):
@@ -130,19 +113,6 @@ class DispRefiner(ks.layers.Layer):
             for nbre_filters in conv_channels
         ]
 
-    def build(self, input_shape):
-        # Build all convolutional layers
-        current_shape = input_shape
-        for conv in self.prep_conv_layers:
-            conv.build(current_shape)
-            current_shape = conv.compute_output_shape(current_shape)
-        
-        # The output from prep layers goes to multiple paths
-        for conv in self.est_d_conv_layers:
-            conv.build(current_shape)
-        
-        self.built = True
-
     @tf.function
     def call(self, feature_map):
 
@@ -179,78 +149,25 @@ class DepthEstimatorLevel(ks.layers.Layer):
         self.init = True
         self.lvl_depth = depth
         self.lvl_mul = depth-3
-        
-        # Initialize state variables as None, will be created in build
-        self.prev_f_maps = None
-        self.depth_prev_t = None
 
     def build(self, input_shapes):
-        # Get the actual input shape, ensuring all dimensions are defined
-        if isinstance(input_shapes, tuple):
-            # If it's a tuple, take the first element (typical feature shape)
-            input_shape = input_shapes[0] if isinstance(input_shapes[0], tuple) else input_shapes
-        else:
-            input_shape = input_shapes
-        
-        # Ensure all dimensions are defined, replace None with concrete values
-        concrete_shape = []
-        for dim in input_shape:
-            if dim is None:
-                # Use default concrete values for None dimensions
-                concrete_shape.append(1)  # Batch size 1 for inference
-            else:
-                concrete_shape.append(dim)
-        
-        # Convert to tuple and store as self.shape
-        self.shape = tuple(concrete_shape)
-        
-        # Initialize state variables with concrete shapes
+        # Init. variables required to store the state of the level between two time steps when working in an online fashion
+        self.shape = input_shapes
+
         f_maps_init = tf.zeros_initializer()
         d_maps_init = tf.ones_initializer()
-        
-        # Only create state variables for inference (not training)
-        if not self.is_training:
-            self.prev_f_maps = self.add_weight(
-                name="prev_f_maps", 
-                shape=self.shape, 
-                dtype='float32',
-                initializer=f_maps_init, 
-                trainable=False
-            )
-            self.depth_prev_t = self.add_weight(
-                name="depth_prev_t", 
-                shape=self.shape[:3] + (1,), 
-                dtype='float32',
-                initializer=d_maps_init, 
-                trainable=False
-            )
-        
-        # Build the disp_refiner sub-layer
-        cv_channels = 4 * 2  # from get_parallax_sweeping_cv with 4 disparities
-        input_features = [cv_channels, 1]  # cv + log(para_prev_l)
-        
-        if self.ablation.level_memory:
-            input_features.append(4)  # other_prev_l
-        
-        if self.ablation.SNCV:
-            input_features.append(3 * 2)  # autocorr
-        
-        if self.ablation.time_recurr:
-            input_features.append(1)  # log(para_prev_t_reproj)
-        
-        refiner_input_shape = self.shape[:3] + (sum(input_features),)
-        self.disp_refiner.build(refiner_input_shape)
-        
-        self.built = True
+        if (not self.is_training):
+            self.prev_f_maps = self.add_weight(name="prev_f_maps", shape=self.shape, dtype='float32',
+                                               initializer=f_maps_init, trainable=False, use_resource=False)
+            self.depth_prev_t = self.add_weight(name="depth_prev_t", shape=self.shape[:3] + (1,), dtype='float32',
+                                                initializer=d_maps_init, trainable=False, use_resource=False)
+        else:
+            print("Skipping temporal memory instanciation")
 
     @tf.function
     def call(self, curr_f_maps, prev_l_est, rot, trans, camera, new_traj, prev_f_maps=None, prev_t_depth=None):
         with tf.name_scope("DepthEstimator_lvl"):
-            # Get shape dynamically from input tensor instead of using self.shape
-            b = tf.shape(curr_f_maps)[0]
-            h = tf.shape(curr_f_maps)[1]
-            w = tf.shape(curr_f_maps)[2]
-            c = tf.shape(curr_f_maps)[3]
+            b, h, w, c = self.shape
 
             # Disable feature vector subdivision if required
             if self.ablation.subdivide_features:
@@ -265,15 +182,14 @@ class DepthEstimatorLevel(ks.layers.Layer):
                 vector_processing = lambda f_map : f_map
 
             # Preparation of the feature maps for to cost volumes
-            curr_f_maps = vector_processing(tf.reshape(curr_f_maps, [b, h, w, nbre_cuts, -1]))
+            curr_f_maps = vector_processing(tf.reshape(curr_f_maps, [b,h,w,nbre_cuts,-1]))
             curr_f_maps = tf.concat(tf.unstack(curr_f_maps, axis=3), axis=3)
             if prev_f_maps is not None:
-                prev_f_maps = vector_processing(tf.reshape(prev_f_maps, [b, h, w, nbre_cuts, -1]))
+                prev_f_maps = vector_processing(tf.reshape(prev_f_maps, [b,h,w,nbre_cuts,-1]))
                 prev_f_maps = tf.concat(tf.unstack(prev_f_maps, axis=3), axis=3)
 
-            # Manage level temporal memory - use provided inputs or state variables
+            # Manage level temporal memory
             if (not self.is_training) and prev_f_maps is None and prev_t_depth is None:
-                # Use state variables for inference
                 prev_t_depth = self.depth_prev_t
                 prev_f_maps = self.prev_f_maps
 
@@ -288,28 +204,22 @@ class DepthEstimatorLevel(ks.layers.Layer):
                 depth_prev_l = tf.compat.v1.image.resize_bilinear(prev_l_est["depth"], [h, w])
 
             # Reinitialize temporal memory if sample is part of a new sequence
+            # Note : sequences are supposed to be synchronized over the whole batch
             if prev_t_depth is None or (tf.reduce_all(new_traj) and tf.random.uniform([]) < 0.1):
-                # Return initial estimates without updating state
+                if prev_t_depth is None or (tf.reduce_all(new_traj) and tf.random.uniform([]) < 0.1):
+                    prev_t_depth = tf.ones(self.shape[:3] + (1,), dtype='float32') * 1000.
+                if not self.is_training:
+                    self.prev_f_maps.assign(curr_f_maps)
+                    self.depth_prev_t.assign(prev_t_depth)
                 curr_l_est = {"depth": depth_prev_l, "parallax": para_prev_l, "other": other_prev_l}
                 return curr_l_est
             else:
                 with tf.name_scope("preprocessor"):
-                    # Use tf.cond to safely handle the prev_d2para call
-                    def compute_para_prev_t():
-                        return prev_d2para(prev_t_depth, rot, trans, camera)
-                    
-                    def default_para_prev_t():
-                        return tf.ones([b, h, w, 1]) * 1000.0
-                    
-                    # Safely compute para_prev_t
-                    para_prev_t = tf.cond(
-                        tf.reduce_any(tf.math.is_finite(prev_t_depth)),
-                        compute_para_prev_t,
-                        default_para_prev_t
-                    )
+
+                    para_prev_t = prev_d2para(prev_t_depth, rot, trans, camera)
 
                     cv, para_prev_t_reproj = get_parallax_sweeping_cv(curr_f_maps, prev_f_maps, para_prev_t,
-                                                                    para_prev_l, rot, trans, camera, 4, nbre_cuts=nbre_cuts)
+                                                                       para_prev_l, rot, trans, camera, 4, nbre_cuts=nbre_cuts)
 
                     with tf.name_scope("input_prep"):
                         input_features = [cv, tf.math.log(para_prev_l*2**self.lvl_mul)]
@@ -346,10 +256,11 @@ class DepthEstimatorLevel(ks.layers.Layer):
                         "parallax": tf.identity(para_curr_l),
                     }
 
-                    # Remove state assignment in graph mode - this should be handled differently
-                    # State updates should be managed outside the tf.function decorated call
+                    if not self.is_training:
+                        self.prev_f_maps.assign(curr_f_maps)
+                        self.depth_prev_t.assign(depth_prev_t)
 
-                return curr_l_est
+            return curr_l_est
 
 
 class DepthEstimatorPyramid(ks.layers.Layer):
@@ -364,20 +275,6 @@ class DepthEstimatorPyramid(ks.layers.Layer):
         ]
         self.is_training = settings["is_training"]
         self.is_unsupervised = False #settings["unsupervised"]
-
-    def build(self, input_shape):
-        # Build all levels with more concrete shapes
-        for level in self.levels:
-            # Provide a more concrete shape based on typical input dimensions
-            # Adjust these values based on your expected input sizes
-            if self.is_training:
-                typical_feature_shape = (None, 48, 48, 64)  # Training with variable batch size
-            else:
-                typical_feature_shape = (1, 48, 48, 64)  # Inference with batch size 1
-            
-            level.build(typical_feature_shape)
-        
-        self.built = True
 
     @tf.function
     def call(self, f_maps_pyrs, traj_samples, camera, training=False):
@@ -453,16 +350,6 @@ class M4Depth(ks.models.Model):
         self.step_counter = tf.Variable(initial_value=tf.zeros_initializer()(shape=[], dtype='int64'), trainable=False)
         self.summaries = []
 
-    def build(self, input_shape):
-        # Build encoder with typical image input shape
-        image_shape = (None, 384, 384, 3)  # Adjust to match your input size
-        self.encoder.build(image_shape)
-        
-        # Build depth estimator
-        self.d_estimator.build(None)
-        
-        self.built = True
-
     @tf.function
     def call(self, data, training=False):
         traj_samples = data[0]
@@ -480,10 +367,8 @@ class M4Depth(ks.models.Model):
                 return d_maps_pyrs
             else:
                 h, w = traj_samples[-1]['RGB_im'].get_shape().as_list()[1:3]
-                # Return the highest resolution depth map
-                highest_res_depth = d_maps_pyrs[-1][0]["depth"]
-                return {"depth": tf.image.resize(highest_res_depth, [h, w],
-                                                method=tf.image.ResizeMethod.BILINEAR)}
+                return {"depth": tf.image.resize(d_maps_pyrs[-1][0]["depth"], [h, w],
+                                                 method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)}
 
     @tf.function
     def train_step(self, data):
@@ -614,48 +499,100 @@ class M4Depth(ks.models.Model):
     @tf.function
     def m4depth_loss(self, gts, preds):
         with tf.name_scope("loss_function"):
-            total_loss = tf.constant(0.0, dtype=tf.float32)
-            loss_components = 0
             
-            # Use multiple pyramid levels for loss computation
-            for level_idx, level_pred in enumerate(preds[-1]):
-                pred_depth = level_pred["depth"]
-                gt_depth = gts[-1]["depth"]
-                
-                # Resize ground truth to match prediction resolution
-                pred_h, pred_w = pred_depth.get_shape().as_list()[1:3]
-                gt_resized = tf.image.resize(gt_depth, [pred_h, pred_w], 
-                                        method=tf.image.ResizeMethod.BILINEAR)
-                
-                # Create valid mask
-                valid_mask = tf.cast(tf.logical_and(
-                    tf.greater(gt_resized, 0.1), 
-                    tf.less(gt_resized, 200.0)
-                ), tf.float32)
-                
-                valid_count = tf.reduce_sum(valid_mask)
-                
-                if valid_count > 100:  # Only compute loss if we have enough valid pixels
-                    # Simple L1 loss in log space
-                    pred_log = tf.math.log(tf.maximum(pred_depth, 0.1))
-                    gt_log = tf.math.log(tf.maximum(gt_resized, 0.1))
-                    
-                    abs_diff = tf.abs(gt_log - pred_log)
-                    masked_loss = tf.reduce_sum(abs_diff * valid_mask) / valid_count
-                    
-                    # Weight losses from different pyramid levels
-                    weight = 1.0 / (2.0 ** level_idx)  # Higher weight for higher resolutions
-                    total_loss += weight * masked_loss
-                    loss_components += 1
-            
-            # In m4depth_loss function, add:
-            print(f"GT depth shape: {gt_depth.shape}")
-            print(f"Pred depth shape: {pred_depth.shape}")
-            for i, level in enumerate(preds[-1]):
-                print(f"Level {i} depth shape: {level['depth'].shape}")
-            
-            if loss_components > 0:
-                return total_loss
-            else:
-                # Return a small constant loss if no valid components
+            # REMOVE ALL tf.print statements from this entire method
+            # Check if we have enough sequences for training (skip first in sequence)
+            if len(gts) <= 1 or len(preds) <= 1:
+                # Return a small constant loss instead of 0 to ensure gradients flow
                 return tf.constant(0.1, dtype=tf.float32)
+
+            # Clip and convert depth
+            def preprocess(input):
+                processed = tf.math.log(tf.clip_by_value(input, 0.01, 200.))
+                return processed
+
+            l1_loss = tf.constant(0.0, dtype=tf.float32)
+            loss_components = 0
+            sequence_count = 0
+
+            # Iterate over sequence (skip first frame)
+            for seq_idx, (gt, pred_pyr) in enumerate(zip(gts[1:], preds[1:])):
+                
+                gt_preprocessed = preprocess(gt["depth"])
+
+                def masked_reduce_mean(array, mask, axis=None):
+                    result = tf.reduce_sum(array * mask, axis=axis) / (tf.reduce_sum(mask, axis=axis) + 1e-12)
+                    return result
+
+                # Iterate over the outputs produced by the different levels
+                for level_idx, pred in enumerate(pred_pyr):
+                    pred_depth = preprocess(pred["depth"])
+
+                    # Initialize l1_loss_term here to ensure it's defined in all branches
+                    l1_loss_term = tf.constant(0.0, dtype=tf.float32)
+                    valid_loss_term = False
+                    
+                    # Compute loss term
+                    b, h, w = pred_depth.get_shape().as_list()[:3]
+                    
+                    # Check for NaN/Inf
+                    pred_is_finite = tf.reduce_all(tf.math.is_finite(pred_depth))
+                    gt_is_finite = tf.reduce_all(tf.math.is_finite(gt_preprocessed))
+
+                    if not pred_is_finite or not gt_is_finite:
+                        continue
+
+                    # Only take relevant points into account when using velodyne-based ground truth
+                    if self.depth_type == "velodyne":
+                        # detect holes
+                        h_g, w_g = gt_preprocessed.get_shape().as_list()[1:3]
+                        tmp = tf.reshape(gt["depth"], [b, h, h_g // h, w, w_g // w, 1])
+                        mask = tf.cast(tf.greater(tmp, 0), tf.float32)
+
+                        # resize ground-truth by taking holes into account
+                        tmp = tf.reshape(gt_preprocessed, [b, h, h_g // h, w, w_g // w, 1])
+                        gt_resized = masked_reduce_mean(tmp, mask, axis=[2, 4])
+
+                        # compute loss only on data points
+                        new_mask = tf.cast(tf.greater(tf.reduce_sum(mask, axis=[2, 4]), 0.), tf.float32)
+                        l1_loss_term = (0.64 / (2. ** (level_idx - 1))) * masked_reduce_mean(
+                            tf.abs(gt_resized - pred_depth), new_mask)
+                        
+                        valid_loss_term = True
+                    else:
+                        # Regular depth map mode
+                        gt_resized = tf.image.resize(gt_preprocessed, [h, w])
+                        
+                        abs_diff = tf.abs(gt_resized - pred_depth)
+                        abs_diff_finite = tf.reduce_all(tf.math.is_finite(abs_diff))
+                        
+                        if not abs_diff_finite:
+                            continue
+                        
+                        l1_loss_term = (0.64 / (2. ** (level_idx - 1))) * tf.reduce_mean(abs_diff)
+                        valid_loss_term = True
+                    
+                    # Check loss term
+                    loss_term_finite = tf.math.is_finite(l1_loss_term)
+                    
+                    if loss_term_finite and valid_loss_term:
+                        l1_loss += l1_loss_term / (float(len(gts) - 1))
+                        loss_components += 1
+
+                sequence_count += 1
+
+            # Final loss computation
+            if loss_components == 0:
+                # Return a small constant instead of 0 to ensure gradients can flow
+                return tf.constant(0.1, dtype=tf.float32)
+            
+            # Normalize by number of sequences (already divided by sequence count in loop)
+            final_loss = l1_loss
+            final_loss_finite = tf.math.is_finite(final_loss)
+            
+            if not final_loss_finite:
+                return tf.constant(0.1, dtype=tf.float32)
+            
+            return final_loss
+
+
