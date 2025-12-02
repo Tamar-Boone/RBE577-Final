@@ -1,0 +1,8 @@
+# macos apple silicon (m1/m2/m3) requirements
+# install with: pip install -r requirements-macos.txt
+
+-r requirements-common.txt
+
+# tensorflow for apple silicon - uses metal for gpu acceleration
+tensorflow-macos>=2.14.0,<2.17.0
+tensorflow-metal>=1.1.0

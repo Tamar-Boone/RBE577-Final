@@ -1,5 +1,70 @@
 # M4Depth
 
+## RBE577 Final Project Setup
+
+This fork is for the RBE577 Machine Learning for Robotics final project. Below are setup instructions for our team.
+
+### Environment Setup
+
+**Do not commit your `.venv/` directory** - it's in `.gitignore`.
+
+#### macOS (Apple Silicon M1/M2/M3)
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-macos.txt
+```
+
+#### Linux (x86 with CUDA)
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-linux.txt
+```
+
+#### Verify TensorFlow Installation
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices())"
+```
+You should see `GPU` or `Metal` device listed if GPU acceleration is working.
+
+### Branching Strategy
+
+We use a simple feature-branch workflow for 2-person collaboration:
+
+```
+main                    # stable, working code only
+├── feature/midair      # phase 1: midair training work
+├── feature/usegeo      # phase 2: usegeo dataloader and fine-tuning
+├── feature/viz         # visualization and plotting scripts
+└── fix/*               # bug fixes
+```
+
+**Workflow:**
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make commits on your branch
+3. Push and create a pull request: `git push -u origin feature/your-feature`
+4. Other person reviews, then merge to `main`
+5. Delete the branch after merge
+
+**Rules:**
+- Never push directly to `main`
+- Pull `main` before creating a new branch: `git pull origin main`
+- Keep branches short-lived (merge within a few days)
+
+### Project Phases
+
+| Phase | Description | Branch |
+|-------|-------------|--------|
+| 1 | Train on MidAir synthetic dataset | `feature/midair` |
+| 2 | Create UseGeo dataloader + fine-tune | `feature/usegeo` |
+
+---
+
+*Original M4Depth README follows below.*
+
+---
+
 This is the reference TensorFlow implementation for training and testing M4Depth, the depth estimation method described in
 
 > **Parallax Inference for Robust Temporal Monocular Depth Estimation in Unstructured Environments**

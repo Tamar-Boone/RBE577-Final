@@ -122,8 +122,8 @@ if __name__ == '__main__':
 
         model_checkpoint_cbk = CustomCheckpointCallback(os.path.join(ckpt_dir,"train"), resume_training=True)
 
-        # Use standard learning rate
-        opt = tf.keras.optimizers.AdamW(
+        # use legacy optimizer for m1/m2 mac compatibility (avoids the auto-fallback bug)
+        opt = tf.keras.optimizers.legacy.Adam(
             learning_rate=0.0001,
             beta_1=0.9,
             beta_2=0.999,

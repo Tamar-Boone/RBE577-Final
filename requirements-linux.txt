@@ -1,0 +1,8 @@
+# linux x86 requirements
+# install with: pip install -r requirements-linux.txt
+# for gpu support: ensure cuda 11.8+ and cudnn 8.6+ are installed
+
+-r requirements-common.txt
+
+# standard tensorflow - works with cuda on linux
+tensorflow>=2.14.0,<2.17.0

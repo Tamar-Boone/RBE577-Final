@@ -1,2 +1,36 @@
+# virtual environments - never commit these
+.venv/
+venv/
+env/
+
+# python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# large data and model files
 datasets/
-pretrained_weights/
+checkpoints/
+ckpt/
+*.ckpt*
+*.pb
+
+# pretrained weights - exclude originals but allow our trained weights
+pretrained_weights/midair/
+pretrained_weights/kitti/
+!pretrained_weights/midair_partial/
+
+# logs and outputs
+logs/
+summaries/
+*.log
+tensorboard/
+
+# ide and editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# jupyter
+.ipynb_checkpoints/
