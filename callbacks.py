@@ -103,13 +103,13 @@ class CustomCheckpointCallback(ks.callbacks.TerminateOnNaN):
             self.checkpoint.restore(latest_ckpt_path)
 
     def on_predict_begin(self, logs=None):
-        self.checkpoint = tf.train.Checkpoint(self.model)
-        latest_ckpt_path = tf.train.latest_checkpoint(self.train_dir)
-        if latest_ckpt_path is None:
-            print("No valid checkpoint found, proceeding with scratch network initialization")
+        # look for .weights.h5 file (matching how on_epoch_end saves)
+        weights_path = os.path.join(self.train_dir, "latest_ckpt.weights.h5")
+        if os.path.exists(weights_path):
+            print("Restoring weights from %s" % weights_path)
+            self.model.load_weights(weights_path, skip_mismatch=True)
         else:
-            print("Restoring weights from %s" % latest_ckpt_path)
-            self.checkpoint.restore(latest_ckpt_path)
+            print("No valid checkpoint found at %s, proceeding with scratch network initialization" % weights_path)
 
     def on_test_begin(self, logs=None):
         self.on_predict_begin(logs=logs)
