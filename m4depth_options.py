@@ -48,6 +48,8 @@ class M4DepthOptions:
                           help="""How often (in batches) to update summaries.""")
         args.add_argument('--save_interval', default=2, type=int,
                           help="""How often (in epochs) to save checkpoints.""")
+        args.add_argument('--epochs', default=None, type=int,
+                          help="""Number of training epochs. If not set, calculates based on 220k iterations.""")
         args.add_argument('--conf_err_rate', default=0.05, type=float,
                           help="""Desired error rate on the confidence bounds.""")
         args.add_argument('--no_augmentation',

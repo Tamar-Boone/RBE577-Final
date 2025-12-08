@@ -27,7 +27,7 @@ class DataLoaderMidAir(DataLoaderGeneric):
         if (usecase == "eval" or usecase=="predict") and self.crop:
             return AttributeError("Crop option should be disabled when evaluating or predicting samples")
         super(DataLoaderMidAir, self).get_dataset(usecase, settings, batch_size=batch_size, out_size=out_size)
-        self.db_path = "/home/tamar/RBE577_ws/Final/M4Depth/datasets/MidAir"
+        # db_path is now set from datasets_location.json via parent class
 
     @tf.function
     def _decode_samples(self, data_sample):

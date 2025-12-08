@@ -1,6 +1,4 @@
 {
-  "_comment": "relative paths should be written relative to this file",
-  "midair" : "./datasets/MidAir",
-  "kitti-raw": "./datasets/Kitti",
-  "tartanair": "./datasets/TartanAir"
+  "midair": "/Users/bryanzhao/development/code/wpi/rbe_577/machine_learning_robotics/final_project/MidAir",
+  "kitti-raw": "/path/to/kitti"
 }

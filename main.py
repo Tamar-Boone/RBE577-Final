@@ -24,6 +24,13 @@ os.environ['TF_DISABLE_XLA'] = '1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
+# cap metal gpu memory to prevent oom on mac. tensorflow-metal has a known memory
+# leak, so we limit allocation to leave headroom for the system. for 16gb m2 pro,
+# 8gb is a safe default. override by setting TF_METAL_DEVICE_MEMORY_LIMIT before running.
+import platform
+if platform.system() == 'Darwin' and 'TF_METAL_DEVICE_MEMORY_LIMIT' not in os.environ:
+    os.environ['TF_METAL_DEVICE_MEMORY_LIMIT'] = '8192'
+
 # Now import other modules
 import argparse
 from m4depth_options import M4DepthOptions
@@ -139,8 +146,12 @@ if __name__ == '__main__':
             val_cbk = []
         
         gradient_monitor = GradientMonitor(log_frequency=10)
+        memory_cleanup = MemoryCleanupCallback()
 
-        if cmd.mode == 'finetune':
+        # use --epochs if provided, otherwise calculate from target iterations
+        if cmd.epochs is not None:
+            nbre_epochs = cmd.epochs
+        elif cmd.mode == 'finetune':
             nbre_epochs = model_checkpoint_cbk.resume_epoch + (20000 // chosen_dataloader.length)
         else:
             nbre_epochs = (220000 // chosen_dataloader.length)
@@ -157,7 +168,7 @@ if __name__ == '__main__':
         # Standard training loop
         model.fit(data, epochs=nbre_epochs + 1,
                   initial_epoch=model_checkpoint_cbk.resume_epoch,
-                  callbacks=[model_checkpoint_cbk, reduce_lr, gradient_monitor] + val_cbk)
+                  callbacks=[model_checkpoint_cbk, reduce_lr, gradient_monitor, memory_cleanup] + val_cbk)
 
     elif cmd.mode == 'eval' or cmd.mode == 'validation':
 
@@ -170,16 +181,44 @@ if __name__ == '__main__':
         chosen_dataloader.get_dataset("eval", model_opts.dataloader_settings, batch_size=1)
         data = chosen_dataloader.dataset
 
-        model = M4Depth(nbre_levels=nbre_levels, ablation_settings=model_opts.ablation_settings)
+        # use is_training=True to match training model architecture for checkpoint loading
+        # the is_training flag affects weight creation, not inference behavior for conv layers
+        model = M4Depth(depth_type=chosen_dataloader.depth_type,
+                        nbre_levels=nbre_levels,
+                        ablation_settings=model_opts.ablation_settings,
+                        is_training=True)
 
-        model_checkpoint_cbk = CustomCheckpointCallback(weights_dir, resume_training=True)
         model.compile(metrics=[AbsRelError(),
                                SqRelError(),
                                RootMeanSquaredError(),
                                RootMeanSquaredLogError(),
                                ThresholdRelError(1), ThresholdRelError(2), ThresholdRelError(3)])
 
-        metrics = model.evaluate(data, callbacks=[model_checkpoint_cbk])
+        # build model first by running one forward pass, then load weights
+        for batch in data.take(1):
+            data_format = len(batch["depth"].get_shape().as_list())
+            if data_format == 5:  # sequence format: (batch, seq, h, w, c)
+                seq_len = batch["depth"].get_shape().as_list()[1]
+                traj_samples = [{} for i in range(seq_len)]
+                for key in ["depth", "RGB_im", "new_traj", "rot", "trans"]:
+                    value_list = tf.unstack(batch[key], axis=1)
+                    for i, item in enumerate(value_list):
+                        traj_samples[i][key] = item
+                _ = model([traj_samples, batch["camera"]], training=False)
+            else:  # single frame format: (batch, h, w, c)
+                _ = model([[batch], batch["camera"]], training=False)
+
+        # load weights using tf.train.Checkpoint (same method as training restore)
+        # this properly loads all weights including state variables, unlike .weights.h5 format
+        checkpoint = tf.train.Checkpoint(model)
+        latest_ckpt_path = tf.train.latest_checkpoint(weights_dir)
+        if latest_ckpt_path is not None:
+            print("Loading checkpoint from %s" % latest_ckpt_path)
+            checkpoint.restore(latest_ckpt_path).expect_partial()
+        else:
+            print("WARNING: No checkpoint found in %s" % weights_dir)
+
+        metrics = model.evaluate(data)
 
         if cmd.mode == 'validation':
             manager = BestCheckpointManager(os.path.join(ckpt_dir,"train"), os.path.join(ckpt_dir,"best"), keep_top_n=cmd.keep_top_n)
@@ -199,7 +238,11 @@ if __name__ == '__main__':
         chosen_dataloader.get_dataset("predict", model_opts.dataloader_settings, batch_size=1)
         data = chosen_dataloader.dataset
 
-        model = M4Depth(nbre_levels=nbre_levels, ablation_settings=model_opts.ablation_settings)
+        # use is_training=True to match training model architecture for checkpoint loading
+        model = M4Depth(depth_type=chosen_dataloader.depth_type,
+                        nbre_levels=nbre_levels,
+                        ablation_settings=model_opts.ablation_settings,
+                        is_training=True)
         model.compile()
         model_checkpoint_cbk = CustomCheckpointCallback(os.path.join(ckpt_dir, "best"), resume_training=True)
         first_sample = data.take(1)

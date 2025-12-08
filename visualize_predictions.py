@@ -138,7 +138,7 @@ def main():
     chosen_dataloader = get_loader("midair")
 
     # configure dataloader settings
-    records_path = args.records_path if args.records_path else 'data/midair/test_data_custom'
+    records_path = args.records_path if args.records_path else 'data/midair/test_data'
     if args.use_train_data:
         records_path = 'data/midair/train_data'
 
@@ -151,10 +151,12 @@ def main():
     chosen_dataloader.get_dataset("eval", model_opts.dataloader_settings, batch_size=1)
     dataset = chosen_dataloader.dataset
 
-    # create model (use default is_training=True to match checkpoint architecture)
+    # create model with 6 levels to match paper architecture
+    # use is_training=True to match training model architecture for checkpoint loading
     model = M4Depth(
         depth_type=chosen_dataloader.depth_type,
-        nbre_levels=4
+        nbre_levels=6,
+        is_training=True
     )
 
     # checkpoint directory
@@ -172,17 +174,20 @@ def main():
         camera = batch["camera"]
         _ = model([traj_samples, camera], training=False)
 
-    # load weights from .weights.h5 file
-    weights_path = os.path.join(ckpt_dir, "best", "latest_ckpt.weights.h5")
-    if not os.path.exists(weights_path):
-        weights_path = os.path.join(ckpt_dir, "train", "latest_ckpt.weights.h5")
+    # load weights using tf.train.Checkpoint (same as training restore)
+    # try best/ first, fall back to train/
+    checkpoint = tf.train.Checkpoint(model)
+    weights_dir = os.path.join(ckpt_dir, "best")
+    latest_ckpt = tf.train.latest_checkpoint(weights_dir)
+    if latest_ckpt is None:
+        weights_dir = os.path.join(ckpt_dir, "train")
+        latest_ckpt = tf.train.latest_checkpoint(weights_dir)
 
-    if os.path.exists(weights_path):
-        print(f"loading weights from: {weights_path}")
-        # use skip_mismatch to handle any state variable differences
-        model.load_weights(weights_path, skip_mismatch=True)
+    if latest_ckpt is not None:
+        print(f"loading checkpoint from: {latest_ckpt}")
+        checkpoint.restore(latest_ckpt).expect_partial()
     else:
-        print(f"warning: no weights found at {weights_path}, using random initialization")
+        print(f"warning: no checkpoint found, using random initialization")
 
     # generate visualizations
     visualize_samples(model, dataset, args.num_samples, args.output_dir)
