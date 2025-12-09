@@ -18,7 +18,7 @@ from m4depth_options import M4DepthOptions
 from dataloaders import get_loader
 
 
-def visualize_samples(model, dataset, num_samples=10, output_dir="visualizations"):
+def visualize_samples(model, dataset, num_samples=500, output_dir="visualizations"):
     """
     generate side-by-side comparisons of rgb, predicted depth, and ground truth.
     """
@@ -121,7 +121,7 @@ def visualize_samples(model, dataset, num_samples=10, output_dir="visualizations
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize depth predictions')
-    parser.add_argument('--num_samples', type=int, default=10,
+    parser.add_argument('--num_samples', type=int, default=500,
                         help='number of samples to visualize')
     parser.add_argument('--output_dir', type=str, default='visualizations',
                         help='output directory for images')

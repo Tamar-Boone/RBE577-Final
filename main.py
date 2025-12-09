@@ -145,7 +145,7 @@ if __name__ == '__main__':
         else:
             val_cbk = []
         
-        gradient_monitor = GradientMonitor(log_frequency=10)
+        gradient_monitor = GradientMonitor(log_frequency=479)
         memory_cleanup = MemoryCleanupCallback()
 
         # use --epochs if provided, otherwise calculate from target iterations
