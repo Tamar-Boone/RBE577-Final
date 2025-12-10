@@ -10,8 +10,8 @@ class M4DepthOptions:
         # Global Options
         args.add_argument('--dataset',
                           default="",
-                          choices=['midair', 'tartanair', 'kitti-raw'],
-                          help="""Dataset to use (midair, tartanair or kitti-raw)""")
+                          choices=['midair', 'tartanair', 'kitti-raw', 'use_geo'],
+                          help="""Dataset to use (midair, tartanair, kitti-raw, use_geo)""")
         args.add_argument('--ckpt_dir',
                           default="ckpt",
                           help="""Model checkpoint directory""")

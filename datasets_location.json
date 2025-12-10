@@ -1,4 +1,5 @@
 {
   "midair": "/home/tamar/RBE577_ws/Final/Group_Project/datasets/MidAir",
-  "kitti-raw": "/path/to/kitti"
+  "kitti-raw": "/path/to/kitti",
+  "use_geo": "/home/tamar/RBE577_ws/Final/Group_Project/datasets/UseGeo/Dataset-2/"
 }

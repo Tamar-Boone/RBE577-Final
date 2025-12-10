@@ -12,9 +12,6 @@ You should have received a copy of the GNU Affero General Public License along w
 program. If not, see < [ https://www.gnu.org/licenses/ | https://www.gnu.org/licenses/ ] >.
 ----------------------------------------------------------------------------------------
 
-To run program
-./scripts/1a-train-midair.sh pretrained_weights/midair
-
 """
 
 # DISABLE XLA COMPLETELY AND AGGRESSIVELY
@@ -145,7 +142,7 @@ if __name__ == '__main__':
         else:
             val_cbk = []
         
-        gradient_monitor = GradientMonitor(log_frequency=479)
+        gradient_monitor = GradientMonitor(log_frequency=342)
         memory_cleanup = MemoryCleanupCallback()
 
         # use --epochs if provided, otherwise calculate from target iterations
@@ -166,7 +163,7 @@ if __name__ == '__main__':
         )
 
         # Standard training loop
-        model.fit(data, epochs=nbre_epochs + 1,
+        model.fit(data, epochs=200,
                   initial_epoch=model_checkpoint_cbk.resume_epoch,
                   callbacks=[model_checkpoint_cbk, reduce_lr, gradient_monitor, memory_cleanup] + val_cbk)
 

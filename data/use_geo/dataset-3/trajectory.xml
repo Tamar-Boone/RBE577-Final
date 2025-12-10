@@ -1,0 +1,16 @@
+
+<opalsFormatDefinition>
+  <description>Trajectory text format: x y z time roll pitch yaw</description>
+  
+  <text commentInitiator="#" >
+    <header text="# Trajectory format: Easting[m] Northing[m] Elevation[m] Time[s] Roll[deg] Pitch[deg] Yaw[deg]" />
+
+    <column name="x" />
+    <column name="y" />
+    <column name="z" />
+    <column name="GPSTime" />
+    <column name="RollAngle"  toOpals="x*pi/180"  toFile="x/pi*180" />
+    <column name="PitchAngle" toOpals="x*pi/180"  toFile="x/pi*180" />
+    <column name="YawAngle"   toOpals="x*pi/180"  toFile="x/pi*180" />
+  </text>
+</opalsFormatDefinition>

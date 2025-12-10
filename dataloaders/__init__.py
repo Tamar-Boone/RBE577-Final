@@ -1,13 +1,15 @@
 from .midair import DataLoaderMidAir as MidAir
 from .kitti import DataLoaderKittiRaw as KittiRaw
 from .tartanair import DataLoaderTartanAir as TartanAir
+from .use_geo import DataLoaderUseGeo as UseGeo
 from .generic import DataloaderParameters
 
 def get_loader(name : str):
     available = {
         "midair"        : MidAir(),
         "kitti-raw"     : KittiRaw(),
-        "tartanair"   : TartanAir()
+        "tartanair"   : TartanAir(),
+        "use_geo"     : UseGeo()
     }
     try:
         return available[name]
