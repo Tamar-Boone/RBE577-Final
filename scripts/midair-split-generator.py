@@ -35,11 +35,31 @@ if __name__== "__main__":
     for set in data:
         climates = os.listdir(os.path.join(a.db_path,set))
         for climate in climates:
+            # skip hidden files like .DS_Store on macos
+            if climate.startswith('.'):
+                continue
+            # skip if not a directory
+            climate_path = os.path.join(a.db_path, set, climate)
+            if not os.path.isdir(climate_path):
+                continue
             print("Processing %s %s" % (set, climate))
 
             trajectories = os.listdir(os.path.join(*[a.db_path, set, climate, sensors[0][0]]))
             h5_db = h5py.File(os.path.join(*[a.db_path, set, climate, "sensor_records.hdf5"]), 'r')
             for traj_nbre, (traj) in enumerate(trajectories):
+
+                # skip trajectories with very little data (need at least 500 frames for useful training)
+                # check BOTH color_left and stereo_disparity - use minimum of the two
+                color_path = os.path.join(*[a.db_path, set, climate, sensors[0][0], traj])
+                disp_path = os.path.join(*[a.db_path, set, climate, sensors[1][0], traj])
+
+                color_count = len(os.listdir(color_path)) if os.path.isdir(color_path) else 0
+                disp_count = len(os.listdir(disp_path)) if os.path.isdir(disp_path) else 0
+                file_count = min(color_count, disp_count)
+
+                if file_count < 500:
+                    print("  Skipping %s (color: %d, disp: %d files)" % (traj, color_count, disp_count))
+                    continue
 
                 # Assign one-on-three trajectories to the test set
                 if traj_nbre % 3 !=0:
@@ -66,6 +86,15 @@ if __name__== "__main__":
                     p_b = np.array(h5_db[traj]["groundtruth"]["position"][(4*FRAME_SKIP):, :])
 
                     traj_len = r_a.shape[0]//(FRAME_SKIP*4)
+
+                    # limit traj_len to actual available files to avoid referencing missing frames
+                    # frame indices go from FRAME_SKIP to (traj_len * FRAME_SKIP + FRAME_SKIP)
+                    # so max frame index is (traj_len + 1) * FRAME_SKIP
+                    # file_count files means max frame ~= file_count * FRAME_SKIP (approximately)
+                    max_safe_traj_len = (file_count - 1) // FRAME_SKIP - 1
+                    if max_safe_traj_len < traj_len:
+                        print("  Limiting %s from %d to %d entries (based on %d files)" % (traj, traj_len, max_safe_traj_len, file_count))
+                        traj_len = max_safe_traj_len
 
                     seq_cam = []
                     seq_disp = []

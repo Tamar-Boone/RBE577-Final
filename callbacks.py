@@ -89,7 +89,11 @@ class CustomCheckpointCallback(ks.callbacks.TerminateOnNaN):
             self.resume_epoch = 0
         else:
             print("Latest checkpoint found: %s" % str(latest_checkpoint))
-            self.resume_epoch = int(re.findall("\d{4}(?=\.ckpt)", latest_checkpoint)[0]) + 1
+            # handle both tf checkpoint format (ckpt-23) and keras format (cp-0023.ckpt)
+            match = re.findall(r"ckpt-(\d+)", latest_checkpoint)
+            if not match:
+                match = re.findall(r"\d{4}(?=\.ckpt)", latest_checkpoint)
+            self.resume_epoch = int(match[0]) + 1 if match else 0
 
     def on_batch_end(self, batch, logs=None):
         super(CustomCheckpointCallback, self).on_batch_end(batch, logs=logs)

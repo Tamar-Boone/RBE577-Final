@@ -1,4 +1,5 @@
 {
   "midair": "/Users/bryanzhao/development/code/wpi/rbe_577/machine_learning_robotics/final_project/MidAir",
-  "kitti-raw": "/path/to/kitti"
+  "kitti-raw": "/path/to/kitti",
+  "usegeo": "/Users/bryanzhao/development/code/wpi/rbe_577/machine_learning_robotics/final_project/UseGeo"
 }

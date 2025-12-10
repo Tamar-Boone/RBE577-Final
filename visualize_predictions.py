@@ -18,15 +18,21 @@ from m4depth_options import M4DepthOptions
 from dataloaders import get_loader
 
 
-def visualize_samples(model, dataset, num_samples=10, output_dir="visualizations"):
+def visualize_samples(model, dataset, num_samples=10, output_dir="visualizations", stride=1):
     """
     generate side-by-side comparisons of rgb, predicted depth, and ground truth.
+    stride: skip every N samples to spread across different trajectories/scenes
     """
     os.makedirs(output_dir, exist_ok=True)
 
     # iterate through dataset
     sample_count = 0
+    iter_count = 0
     for batch in dataset:
+        iter_count += 1
+        # skip samples based on stride to spread across trajectories
+        if stride > 1 and (iter_count - 1) % stride != 0:
+            continue
         if sample_count >= num_samples:
             break
 
@@ -127,6 +133,12 @@ def main():
                         help='output directory for images')
     parser.add_argument('--use_train_data', action='store_true',
                         help='visualize on training data instead of test')
+    parser.add_argument('--stride', type=int, default=1,
+                        help='skip every N samples to spread across trajectories (e.g. 100 to sample different scenes)')
+    parser.add_argument('--shuffle', action='store_true',
+                        help='shuffle dataset before sampling (mixes environments)')
+    parser.add_argument('--environment', type=str, default=None,
+                        help='filter to specific environment (e.g. Kite_training/cloudy, PLE_training/fall)')
 
     # add m4depth options to parser (includes --ckpt_dir, --records_path, etc)
     model_opts = M4DepthOptions(parser)
@@ -142,6 +154,11 @@ def main():
     if args.use_train_data:
         records_path = 'data/midair/train_data'
 
+    # filter to specific environment if requested
+    if args.environment:
+        records_path = os.path.join(records_path, args.environment)
+        print(f"filtering to environment: {args.environment}")
+
     model_opts.dataloader_settings = model_opts.dataloader_settings._replace(
         records_path=records_path,
         db_seq_len=4
@@ -150,6 +167,10 @@ def main():
     # load dataset
     chosen_dataloader.get_dataset("eval", model_opts.dataloader_settings, batch_size=1)
     dataset = chosen_dataloader.dataset
+
+    # apply shuffle if requested (mixes samples from different trajectories/environments)
+    if args.shuffle:
+        dataset = dataset.shuffle(buffer_size=1000, seed=42)
 
     # create model with 6 levels to match paper architecture
     # use is_training=True to match training model architecture for checkpoint loading
@@ -190,9 +211,9 @@ def main():
         print(f"warning: no checkpoint found, using random initialization")
 
     # generate visualizations
-    visualize_samples(model, dataset, args.num_samples, args.output_dir)
+    visualize_samples(model, dataset, args.num_samples, args.output_dir, stride=args.stride)
 
-    print("\ndone! open the images in", args.output_dir, "to inspect predictions")
+    print(f"\ndone! {args.num_samples} visualizations saved to {args.output_dir}/")
 
 
 if __name__ == '__main__':
